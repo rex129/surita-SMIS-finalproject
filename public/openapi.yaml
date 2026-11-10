@@ -1,0 +1,199 @@
+openapi: 3.0.3
+info:
+  title: SIMS REST API
+  version: 1.0.0
+  description: |
+    Student Information Management System API.
+    Log in with `POST /api/login` to receive a bearer token, then send
+    `Authorization: Bearer <token>` and `Accept: application/json` on every request.
+    Roles: `admin` (full access) and `staff` (cannot delete).
+servers:
+  - url: http://127.0.0.1:8000/api
+    description: Local development
+tags:
+  - name: Auth
+  - name: Students
+security:
+  - bearerAuth: []
+paths:
+  /login:
+    post:
+      tags: [Auth]
+      summary: Get an API token
+      description: Rate limited to 10 requests per minute.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: admin@sims.test }
+                password: { type: string, example: password }
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, example: 1|abc123... }
+                  token_type: { type: string, example: Bearer }
+                  role: { type: string, enum: [admin, staff] }
+        '401': { description: Invalid credentials }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current token
+      responses:
+        '200': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /students:
+    get:
+      tags: [Students]
+      summary: List students (paginated)
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Search number, name or email }
+        - { name: course, in: query, schema: { type: string }, example: BSIT }
+        - { name: per_page, in: query, schema: { type: integer, default: 15, maximum: 100 } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+      responses:
+        '200':
+          description: Paginated list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Student' }
+                  links: { type: object }
+                  meta: { type: object }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    post:
+      tags: [Students]
+      summary: Create a student
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StudentInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Student' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /students/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Students]
+      summary: Show a student with their enrollments
+      responses:
+        '200':
+          description: The student
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Student' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Students]
+      summary: Update a student
+      description: '`PATCH` behaves identically.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StudentInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Student' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Students]
+      summary: Delete a student (admin only)
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { description: Administrator access required }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    Unauthenticated:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { type: object, properties: { message: { type: string, example: Unauthenticated. } } }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { type: object, properties: { message: { type: string, example: Resource not found. } } }
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+              errors: { type: object, additionalProperties: { type: array, items: { type: string } } }
+  schemas:
+    StudentInput:
+      type: object
+      required: [student_number, first_name, last_name, email, course, year_level]
+      properties:
+        student_number: { type: string, maxLength: 20, example: 2026-1001 }
+        first_name: { type: string, maxLength: 100, example: Ana }
+        last_name: { type: string, maxLength: 100, example: Cruz }
+        email: { type: string, format: email, maxLength: 255, example: ana@example.com }
+        course: { type: string, maxLength: 100, example: BSIT }
+        year_level: { type: integer, minimum: 1, maximum: 6, example: 2 }
+    Student:
+      allOf:
+        - $ref: '#/components/schemas/StudentInput'
+        - type: object
+          properties:
+            id: { type: integer }
+            enrollments:
+              type: array
+              description: Only included on the show endpoint
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  subject_code: { type: string }
+                  subject_name: { type: string }
+                  school_year: { type: string, example: 2025-2026 }
+                  semester: { type: string, example: 1st }
+                  status: { type: string, enum: [enrolled, completed, dropped] }
+                  grade: { type: number, nullable: true }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
